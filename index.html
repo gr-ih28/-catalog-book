@@ -67,7 +67,7 @@
     align-items:center;
     gap:8px;
     background:var(--brass);
-    color:#2A1F0F;
+    color:#FFFFFF;
     border:none;
     font-family:'Noto Sans JP', sans-serif;
     font-weight:700;
@@ -374,6 +374,78 @@
 
   ::-webkit-scrollbar{ width:8px; height:8px; }
   ::-webkit-scrollbar-thumb{ background:var(--line-strong); border-radius:4px; }
+
+  /* ---------- Tablet (portrait) ---------- */
+  @media (max-width: 900px){
+    .main{ padding:26px 22px 60px; }
+    .grid-makers{ grid-template-columns:repeat(auto-fill, minmax(190px,1fr)); }
+    .grid-catalogs{ grid-template-columns:repeat(auto-fill, minmax(220px,1fr)); }
+  }
+
+  /* ---------- Smartphone ---------- */
+  @media (max-width: 640px){
+    body{ overflow:auto; }
+    .header{
+      padding:14px 16px;
+      flex-wrap:wrap;
+      gap:12px;
+    }
+    .header .brand .mark{ font-size:20px; }
+    .btn-add{
+      font-size:14.5px;
+      padding:12px 18px;
+      min-height:46px;
+      width:100%;
+      justify-content:center;
+    }
+    .main{ padding:18px 16px 50px; }
+    .back-row{ margin-bottom:16px; }
+    .back-btn{
+      font-size:14px;
+      padding:10px 16px;
+      min-height:44px;
+    }
+    .main-top{ margin-bottom:16px; }
+    .main-top h2{ font-size:19px; }
+    .main-top .result-n{ font-size:13px; }
+
+    .grid-makers{
+      grid-template-columns:repeat(auto-fill, minmax(140px,1fr));
+      gap:12px;
+    }
+    .block-maker{
+      padding:20px 14px;
+      min-height:120px;
+      gap:8px;
+    }
+    .block-maker .icon{ width:44px; height:44px; font-size:17px; }
+    .block-maker .name{ font-size:16px; }
+    .block-maker .n{ font-size:12px; }
+
+    .grid-catalogs{
+      grid-template-columns:1fr;
+      gap:12px;
+    }
+    .card{ padding:16px 16px 14px; min-height:auto; }
+    .card .name{ font-size:17px; }
+
+    .modal{
+      padding:22px 18px 18px;
+      border-radius:10px;
+      max-height:90vh;
+    }
+    .modal h3{ font-size:18px; margin-bottom:16px; }
+    .field input, .field textarea{
+      font-size:16px; /* iOSの自動ズームを防ぐ */
+      padding:11px 12px;
+      min-height:46px;
+    }
+    .modal-actions{
+      flex-direction:column-reverse;
+      gap:10px;
+    }
+    .modal-actions button{ width:100%; }
+  }
 </style>
 </head>
 <body>
