@@ -473,9 +473,13 @@
 <div id="modalRoot"></div>
 
 <script>
-const STORAGE_KEY = "catalog:entries";
+// ここに、Google Apps Scriptをデプロイして発行されたURLを貼り付けてください
+// 例: "https://script.google.com/macros/s/XXXXXXXXXXXXXXXXXXXX/exec"
+const API_URL = https://script.google.com/macros/s/AKfycby3pYilv6XP0lwOXyx38kRi6bKJWBSWoP-2c2X4VpaAR_R9x9lGHnFTIXNI81xTAQ2I-Q/exec;
+
 let entries = [];
 let loaded = false;
+let loadFailed = false;
 let state = { view: 'makers', maker: null }; // view: 'makers' | 'catalogs'
 
 const el = (sel) => document.querySelector(sel);
@@ -485,10 +489,6 @@ const mainTitleEl = el('#mainTitle');
 const resultNEl = el('#resultN');
 const backRowEl = el('#backRow');
 const backBtnEl = el('#backBtn');
-
-function uid(){
-  return 'e_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2,8);
-}
 
 function escapeHtml(str){
   return (str || '').replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -501,24 +501,49 @@ function normalizeUrl(u){
   return u;
 }
 
+function isApiConfigured(){
+  return API_URL && API_URL.startsWith('http');
+}
+
+async function apiCall(params){
+  const url = API_URL + '?' + new URLSearchParams(params).toString();
+  const res = await fetch(url);
+  if(!res.ok) throw new Error('network error');
+  return await res.json();
+}
+
 async function loadEntries(){
+  if(!isApiConfigured()){
+    loadFailed = true;
+    loaded = true;
+    render();
+    return;
+  }
   try{
-    const res = await window.storage.get(STORAGE_KEY, true);
-    entries = res && res.value ? JSON.parse(res.value) : [];
+    const data = await apiCall({ action: 'list' });
+    entries = data.entries || [];
+    loadFailed = false;
   }catch(e){
     entries = [];
+    loadFailed = true;
   }
   loaded = true;
   render();
 }
 
-async function saveEntries(){
-  try{
-    await window.storage.set(STORAGE_KEY, JSON.stringify(entries), true);
-    return true;
-  }catch(e){
-    return false;
-  }
+async function addEntryRemote(maker, name, url, memo){
+  const data = await apiCall({ action: 'add', maker, name, url, memo });
+  entries = data.entries || [];
+}
+
+async function updateEntryRemote(id, maker, name, url, memo){
+  const data = await apiCall({ action: 'update', id, maker, name, url, memo });
+  entries = data.entries || [];
+}
+
+async function deleteEntryRemote(id){
+  const data = await apiCall({ action: 'delete', id });
+  entries = data.entries || [];
 }
 
 function getMakerCounts(){
@@ -560,6 +585,17 @@ function renderMain(){
     mainTitleEl.textContent = '';
     resultNEl.textContent = '';
     contentEl.innerHTML = `<div class="loading">読み込み中です…</div>`;
+    return;
+  }
+
+  if(loadFailed){
+    mainTitleEl.textContent = '';
+    resultNEl.textContent = '';
+    contentEl.innerHTML = `
+      <div class="empty">
+        <div class="big">データを読み込めませんでした</div>
+        <div>スプレッドシートと連携するAPIのURLが未設定か、接続に失敗しています。<br>アプリのコード内にある API_URL に、Apps Scriptで発行したURLを貼り付けてください。</div>
+      </div>`;
     return;
   }
 
@@ -669,10 +705,11 @@ function openFormModal(existing, presetMaker){
             <label for="f_memo">メモ(任意)</label>
             <textarea id="f_memo" placeholder="現場での案内メモなど">${isEdit ? escapeHtml(existing.memo||'') : ''}</textarea>
           </div>
+          <div class="field-error" id="submitError" style="display:none;"></div>
           <div class="modal-actions">
             ${isEdit ? `<button type="button" class="btn-danger" id="deleteBtn">削除</button>` : ''}
             <button type="button" class="btn-secondary" id="cancelForm">キャンセル</button>
-            <button type="submit" class="btn-primary">${isEdit ? '更新する' : '登録する'}</button>
+            <button type="submit" class="btn-primary" id="submitBtn">${isEdit ? '更新する' : '登録する'}</button>
           </div>
         </form>
       </div>
@@ -697,20 +734,29 @@ function openFormModal(existing, presetMaker){
       return;
     }
     const url = normalizeUrl(urlRaw);
+    const submitBtn = el('#submitBtn');
+    const errorBox = el('#submitError');
+    errorBox.style.display = 'none';
+    submitBtn.disabled = true;
+    submitBtn.textContent = '保存中…';
 
-    if(isEdit){
-      const idx = entries.findIndex(x => x.id === existing.id);
-      entries[idx] = { ...existing, maker, name, url, memo };
+    try{
+      if(isEdit){
+        await updateEntryRemote(existing.id, maker, name, url, memo);
+      } else {
+        await addEntryRemote(maker, name, url, memo);
+      }
       state.maker = maker;
       state.view = 'catalogs';
-    } else {
-      entries.push({ id: uid(), maker, name, url, memo, addedAt: Date.now() });
-      state.maker = maker;
-      state.view = 'catalogs';
+      loadFailed = false;
+      render();
+      closeModal();
+    }catch(err){
+      submitBtn.disabled = false;
+      submitBtn.textContent = isEdit ? '更新する' : '登録する';
+      errorBox.textContent = '保存に失敗しました。通信状況を確認して、もう一度お試しください。';
+      errorBox.style.display = '';
     }
-    render();
-    closeModal();
-    await saveEntries();
   });
 }
 
@@ -722,6 +768,7 @@ function confirmDelete(e){
         <p style="font-size:14.5px; color:var(--ink-soft); line-height:1.7;">
           「${escapeHtml(e.maker)} / ${escapeHtml(e.name)}」を削除します。この操作は元に戻せません。
         </p>
+        <div class="field-error" id="deleteError" style="display:none;"></div>
         <div class="modal-actions">
           <button class="btn-secondary" id="cancelDel">キャンセル</button>
           <button class="btn-danger" id="confirmDel">削除する</button>
@@ -730,12 +777,22 @@ function confirmDelete(e){
     </div>`;
   el('#cancelDel').addEventListener('click', () => openFormModal(e));
   el('#confirmDel').addEventListener('click', async () => {
-    entries = entries.filter(x => x.id !== e.id);
-    const stillHasMaker = entries.some(x => x.maker === e.maker);
-    if(!stillHasMaker) goToMakers();
-    render();
-    closeModal();
-    await saveEntries();
+    const confirmBtn = el('#confirmDel');
+    const errorBox = el('#deleteError');
+    confirmBtn.disabled = true;
+    confirmBtn.textContent = '削除中…';
+    try{
+      await deleteEntryRemote(e.id);
+      const stillHasMaker = entries.some(x => x.maker === e.maker);
+      if(!stillHasMaker) state.view = 'makers', state.maker = null;
+      render();
+      closeModal();
+    }catch(err){
+      confirmBtn.disabled = false;
+      confirmBtn.textContent = '削除する';
+      errorBox.textContent = '削除に失敗しました。通信状況を確認して、もう一度お試しください。';
+      errorBox.style.display = '';
+    }
   });
 }
 
