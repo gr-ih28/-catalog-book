@@ -92,6 +92,65 @@
   }
   .btn-add:hover{ filter:brightness(1.06); }
   .btn-add:active{ filter:brightness(0.94); }
+  .btn-add:disabled{ opacity:0.45; cursor:not-allowed; filter:none; }
+
+  .header-actions{
+    display:flex;
+    align-items:center;
+    gap:10px;
+  }
+  .btn-reorder{
+    display:flex;
+    align-items:center;
+    gap:6px;
+    background:transparent;
+    color:#fff;
+    border:1.5px solid rgba(255,255,255,0.55);
+    font-family:'Noto Sans JP', sans-serif;
+    font-weight:700;
+    font-size:15px;
+    padding:14px 18px;
+    border-radius:9px;
+    cursor:pointer;
+    transition:background 0.15s ease, border-color 0.15s ease;
+    min-height:54px;
+  }
+  .btn-reorder:hover{ background:rgba(255,255,255,0.1); }
+  .btn-reorder.active{
+    background:var(--brass);
+    border-color:var(--brass);
+    color:#fff;
+  }
+
+  .reorder-controls{
+    display:flex;
+    gap:8px;
+    margin-bottom:4px;
+  }
+  .reorder-btn{
+    flex:1;
+    background:var(--pine-tint);
+    border:1px solid var(--line-strong);
+    color:var(--pine-dark);
+    font-size:16px;
+    font-weight:700;
+    padding:10px 0;
+    border-radius:7px;
+    cursor:pointer;
+    min-height:44px;
+  }
+  .reorder-btn:hover{ background:var(--brass-tint); }
+  .reorder-btn:disabled{ opacity:0.3; cursor:not-allowed; }
+  .block-maker.reorder-mode,
+  .card.reorder-mode{
+    cursor:default;
+  }
+  .block-maker.reorder-mode:hover,
+  .card.reorder-mode:hover{
+    border-color:var(--line);
+    box-shadow:none;
+    transform:none;
+  }
 
   /* ---------- Main ---------- */
   .main{
@@ -407,7 +466,19 @@
       gap:12px;
     }
     .header .brand .mark{ font-size:20px; }
+    .header-actions{
+      width:100%;
+      flex-direction:column;
+      gap:10px;
+    }
     .btn-add{
+      font-size:14.5px;
+      padding:12px 18px;
+      min-height:46px;
+      width:100%;
+      justify-content:center;
+    }
+    .btn-reorder{
       font-size:14.5px;
       padding:12px 18px;
       min-height:46px;
@@ -471,7 +542,10 @@
     <div class="brand">
       <div class="mark">カタログ帳</div>
     </div>
-    <button class="btn-add" id="btnAddHeader">＋ カタログを登録</button>
+    <div class="header-actions">
+      <button class="btn-reorder" id="btnReorder">⇅ 並び替え</button>
+      <button class="btn-add" id="btnAddHeader">＋ カタログを登録</button>
+    </div>
   </div>
 
   <div class="main">
@@ -494,9 +568,13 @@
 const API_URL = "https://script.google.com/macros/s/AKfycby3pYilv6XP0lwOXyx38kRi6bKJWBSWoP-2c2X4VpaAR_R9x9lGHnFTIXNI81xTAQ2I-Q/exec";
 
 let entries = [];
+let makerOrder = [];
 let loaded = false;
 let loadFailed = false;
+let reorderMode = false;
 let state = { view: 'makers', maker: null }; // view: 'makers' | 'catalogs'
+
+const CACHE_STORAGE_KEY = 'catalogAppCache_v1';
 
 const el = (sel) => document.querySelector(sel);
 const contentEl = el('#content');
@@ -505,6 +583,8 @@ const mainTitleEl = el('#mainTitle');
 const resultNEl = el('#resultN');
 const backRowEl = el('#backRow');
 const backBtnEl = el('#backBtn');
+const btnAddHeaderEl = el('#btnAddHeader');
+const btnReorderEl = el('#btnReorder');
 
 function escapeHtml(str){
   return (str || '').replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -581,6 +661,26 @@ async function apiCall(params){
   return await res.json();
 }
 
+function loadCacheFromLocalStorage(){
+  try{
+    const raw = localStorage.getItem(CACHE_STORAGE_KEY);
+    if(!raw) return null;
+    const parsed = JSON.parse(raw);
+    if(!parsed || !Array.isArray(parsed.entries)) return null;
+    return parsed;
+  }catch(e){
+    return null;
+  }
+}
+
+function persistCache(){
+  try{
+    localStorage.setItem(CACHE_STORAGE_KEY, JSON.stringify({ entries, makerOrder, savedAt: Date.now() }));
+  }catch(e){
+    // 保存容量オーバーなどは無視して問題ない(次回また保存を試みる)
+  }
+}
+
 async function loadEntries(){
   if(!isApiConfigured()){
     loadFailed = true;
@@ -588,13 +688,29 @@ async function loadEntries(){
     render();
     return;
   }
+
+  // 前回表示していたデータがあれば、通信を待たずに先に表示して体感速度を上げる
+  const cached = loadCacheFromLocalStorage();
+  if(cached){
+    entries = cached.entries;
+    makerOrder = cached.makerOrder || [];
+    loaded = true;
+    loadFailed = false;
+    render();
+  }
+
   try{
     const data = await apiCall({ action: 'list' });
     entries = data.entries || [];
+    makerOrder = data.makerOrder || [];
     loadFailed = false;
+    persistCache();
   }catch(e){
-    entries = [];
-    loadFailed = true;
+    if(!cached){
+      entries = [];
+      loadFailed = true;
+    }
+    // キャッシュがある場合は、通信に失敗してもキャッシュの内容をそのまま表示し続ける
   }
   loaded = true;
   render();
@@ -603,42 +719,123 @@ async function loadEntries(){
 async function addEntryRemote(maker, name, url, memo){
   const data = await apiCall({ action: 'add', maker, name, url, memo });
   entries = data.entries || [];
+  makerOrder = data.makerOrder || makerOrder;
+  persistCache();
 }
 
 async function updateEntryRemote(id, maker, name, url, memo){
   const data = await apiCall({ action: 'update', id, maker, name, url, memo });
   entries = data.entries || [];
+  makerOrder = data.makerOrder || makerOrder;
+  persistCache();
 }
 
 async function deleteEntryRemote(id){
   const data = await apiCall({ action: 'delete', id });
   entries = data.entries || [];
+  makerOrder = data.makerOrder || makerOrder;
+  persistCache();
 }
 
-function getMakerCounts(){
+async function reorderEntriesRemote(ids){
+  const data = await apiCall({ action: 'reorderEntries', ids: ids.join(',') });
+  entries = data.entries || entries;
+  makerOrder = data.makerOrder || makerOrder;
+  persistCache();
+}
+
+async function reorderMakersRemote(names){
+  const data = await apiCall({ action: 'reorderMakers', names: names.join(',') });
+  entries = data.entries || entries;
+  makerOrder = data.makerOrder || names;
+  persistCache();
+}
+
+function getOrderedMakers(){
   const counts = new Map();
   entries.forEach(e => counts.set(e.maker, (counts.get(e.maker)||0) + 1));
-  return [...counts.entries()].sort((a,b) => a[0].localeCompare(b[0], 'ja'));
+  const allNames = [...counts.keys()];
+  const known = (makerOrder || []).filter(n => counts.has(n));
+  const unknown = allNames.filter(n => !known.includes(n)).sort((a,b) => a.localeCompare(b, 'ja'));
+  const orderedNames = [...known, ...unknown];
+  makerOrder = orderedNames; // 新しく増えたメーカーなどを含めて常に最新化しておく
+  return orderedNames.map(n => [n, counts.get(n)]);
 }
 
 function getEntriesForMaker(maker){
-  return entries.filter(e => e.maker === maker)
-    .sort((a,b) => a.name.localeCompare(b.name, 'ja'));
+  // サーバーから返ってきた並び順(登録順 or 保存済みの並び替え順)をそのまま使う
+  return entries.filter(e => e.maker === maker);
+}
+
+let _saveMakerOrderTimer = null;
+function scheduleSaveMakerOrder(){
+  clearTimeout(_saveMakerOrderTimer);
+  _saveMakerOrderTimer = setTimeout(() => {
+    reorderMakersRemote(makerOrder).catch(() => {});
+  }, 500);
+}
+
+let _saveEntryOrderTimer = null;
+function scheduleSaveEntryOrder(maker){
+  clearTimeout(_saveEntryOrderTimer);
+  _saveEntryOrderTimer = setTimeout(() => {
+    const ids = getEntriesForMaker(maker).map(e => e.id);
+    reorderEntriesRemote(ids).catch(() => {});
+  }, 500);
+}
+
+function moveMaker(name, direction){
+  const names = getOrderedMakers().map(([n]) => n);
+  const idx = names.indexOf(name);
+  const newIdx = idx + direction;
+  if(newIdx < 0 || newIdx >= names.length) return;
+  [names[idx], names[newIdx]] = [names[newIdx], names[idx]];
+  makerOrder = names;
+  renderMain();
+  scheduleSaveMakerOrder();
+}
+
+function moveEntry(id, direction){
+  const list = getEntriesForMaker(state.maker);
+  const idx = list.findIndex(x => x.id === id);
+  const newIdx = idx + direction;
+  if(newIdx < 0 || newIdx >= list.length) return;
+  const globalIdxA = entries.indexOf(list[idx]);
+  const globalIdxB = entries.indexOf(list[newIdx]);
+  [entries[globalIdxA], entries[globalIdxB]] = [entries[globalIdxB], entries[globalIdxA]];
+  renderMain();
+  scheduleSaveEntryOrder(state.maker);
 }
 
 function goToMakers(){
   state.view = 'makers';
   state.maker = null;
+  reorderMode = false;
+  updateReorderButton();
   render();
 }
 
 function goToMaker(maker){
   state.view = 'catalogs';
   state.maker = maker;
+  reorderMode = false;
+  updateReorderButton();
   render();
 }
 
 backBtnEl.addEventListener('click', goToMakers);
+
+function updateReorderButton(){
+  btnReorderEl.textContent = reorderMode ? '完了' : '⇅ 並び替え';
+  btnReorderEl.classList.toggle('active', reorderMode);
+  btnAddHeaderEl.disabled = reorderMode;
+}
+
+btnReorderEl.addEventListener('click', () => {
+  reorderMode = !reorderMode;
+  updateReorderButton();
+  renderMain();
+});
 
 function render(){
   if(state.view === 'catalogs'){
@@ -689,12 +886,18 @@ function renderMain(){
 }
 
 function renderMakersView(){
-  const makers = getMakerCounts();
+  const makers = getOrderedMakers();
   mainTitleEl.textContent = '';
-  resultNEl.textContent = `${makers.length} 社`;
+  resultNEl.textContent = reorderMode ? '並び替え中' : `${makers.length} 社`;
 
-  contentEl.innerHTML = `<div class="grid-makers">${makers.map(([name, n]) => `
-    <div class="block-maker" data-maker="${escapeHtml(name)}">
+  contentEl.innerHTML = `<div class="grid-makers">${makers.map(([name, n], idx) => `
+    <div class="block-maker ${reorderMode ? 'reorder-mode' : ''}" data-maker="${escapeHtml(name)}">
+      ${reorderMode ? `
+        <div class="reorder-controls">
+          <button class="reorder-btn" data-move="prev" ${idx === 0 ? 'disabled' : ''} aria-label="前へ">◀ 前</button>
+          <button class="reorder-btn" data-move="next" ${idx === makers.length - 1 ? 'disabled' : ''} aria-label="次へ">次 ▶</button>
+        </div>
+      ` : ''}
       <div class="icon">${escapeHtml(name.slice(0,1))}</div>
       <div class="name">${escapeHtml(name)}</div>
       <div class="n">${n} 件のカタログ</div>
@@ -703,15 +906,25 @@ function renderMakersView(){
 
   fitNameElements();
 
-  contentEl.querySelectorAll('.block-maker').forEach(node => {
-    node.addEventListener('click', () => goToMaker(node.dataset.maker));
-  });
+  if(reorderMode){
+    contentEl.querySelectorAll('.block-maker').forEach(node => {
+      const name = node.dataset.maker;
+      const prevBtn = node.querySelector('[data-move="prev"]');
+      const nextBtn = node.querySelector('[data-move="next"]');
+      if(prevBtn) prevBtn.addEventListener('click', (ev) => { ev.stopPropagation(); moveMaker(name, -1); });
+      if(nextBtn) nextBtn.addEventListener('click', (ev) => { ev.stopPropagation(); moveMaker(name, 1); });
+    });
+  } else {
+    contentEl.querySelectorAll('.block-maker').forEach(node => {
+      node.addEventListener('click', () => goToMaker(node.dataset.maker));
+    });
+  }
 }
 
 function renderCatalogsView(){
   const list = getEntriesForMaker(state.maker);
   mainTitleEl.textContent = state.maker;
-  resultNEl.textContent = `${list.length} 件`;
+  resultNEl.textContent = reorderMode ? '並び替え中' : `${list.length} 件`;
 
   if(list.length === 0){
     contentEl.innerHTML = `
@@ -723,22 +936,43 @@ function renderCatalogsView(){
     return;
   }
 
-  contentEl.innerHTML = `<div class="grid-catalogs">${list.map(cardHtml).join('')}</div>`;
+  contentEl.innerHTML = `<div class="grid-catalogs">${list.map((e, idx) => cardHtml(e, idx, list.length)).join('')}</div>`;
   fitNameElements();
-  list.forEach(e => {
-    const cardNode = el(`[data-card="${e.id}"]`);
-    cardNode.addEventListener('click', (ev) => {
-      if(ev.target.closest('.edit-btn')) return;
-      window.open(e.url, '_blank', 'noopener');
+
+  if(reorderMode){
+    list.forEach(e => {
+      const node = el(`[data-card="${e.id}"]`);
+      const prevBtn = node.querySelector('[data-move="prev"]');
+      const nextBtn = node.querySelector('[data-move="next"]');
+      if(prevBtn) prevBtn.addEventListener('click', (ev) => { ev.stopPropagation(); moveEntry(e.id, -1); });
+      if(nextBtn) nextBtn.addEventListener('click', (ev) => { ev.stopPropagation(); moveEntry(e.id, 1); });
     });
-    el(`[data-edit="${e.id}"]`).addEventListener('click', (ev) => {
-      ev.stopPropagation();
-      openFormModal(e);
+  } else {
+    list.forEach(e => {
+      const cardNode = el(`[data-card="${e.id}"]`);
+      cardNode.addEventListener('click', (ev) => {
+        if(ev.target.closest('.edit-btn')) return;
+        window.open(e.url, '_blank', 'noopener');
+      });
+      el(`[data-edit="${e.id}"]`).addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        openFormModal(e);
+      });
     });
-  });
+  }
 }
 
-function cardHtml(e){
+function cardHtml(e, idx, total){
+  if(reorderMode){
+    return `
+      <div class="card reorder-mode" data-card="${e.id}">
+        <div class="reorder-controls">
+          <button class="reorder-btn" data-move="prev" ${idx === 0 ? 'disabled' : ''} aria-label="前へ">◀ 前</button>
+          <button class="reorder-btn" data-move="next" ${idx === total - 1 ? 'disabled' : ''} aria-label="次へ">次 ▶</button>
+        </div>
+        <div class="name">${escapeHtml(e.name)}</div>
+      </div>`;
+  }
   return `
     <div class="card" data-card="${e.id}">
       <div class="name">${escapeHtml(e.name)}</div>
