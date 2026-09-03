@@ -180,10 +180,13 @@
   }
   .block-maker .name{
     font-family:'Zen Kaku Gothic New', sans-serif;
-    font-size:19px;
+    font-size:calc(19px * var(--ns, 1));
     font-weight:700;
     color:var(--ink);
     line-height:1.4;
+    text-wrap:balance;
+    word-break:keep-all;
+    overflow-wrap:anywhere;
   }
   .block-maker .n{
     font-size:13px;
@@ -213,10 +216,13 @@
   .card:active{ transform:scale(0.98); }
   .card .name{
     font-family:'Zen Kaku Gothic New', sans-serif;
-    font-size:19px;
+    font-size:calc(19px * var(--ns, 1));
     font-weight:700;
     color:var(--ink);
     line-height:1.4;
+    text-wrap:balance;
+    word-break:keep-all;
+    overflow-wrap:anywhere;
   }
   .card .memo{
     font-size:13.5px;
@@ -431,7 +437,7 @@
       gap:8px;
     }
     .block-maker .icon{ width:44px; height:44px; font-size:17px; }
-    .block-maker .name{ font-size:16px; }
+    .block-maker .name{ font-size:calc(16px * var(--ns, 1)); }
     .block-maker .n{ font-size:12px; }
 
     .grid-catalogs{
@@ -439,7 +445,7 @@
       gap:12px;
     }
     .card{ padding:16px 16px 14px; min-height:auto; }
-    .card .name{ font-size:17px; }
+    .card .name{ font-size:calc(17px * var(--ns, 1)); }
 
     .modal{
       padding:22px 18px 18px;
@@ -511,6 +517,16 @@ function normalizeUrl(u){
   if(!u) return u;
   if(!/^https?:\/\//i.test(u)) u = 'https://' + u;
   return u;
+}
+
+// 文字数に応じて見出しの縮小倍率を返す(1文字だけ折り返す見た目を防ぐ)
+function nameScaleRatio(text){
+  const len = (text || '').length;
+  if(len > 14) return 0.62;
+  if(len > 11) return 0.72;
+  if(len > 8) return 0.82;
+  if(len > 6) return 0.9;
+  return 1;
 }
 
 function isApiConfigured(){
@@ -639,7 +655,7 @@ function renderMakersView(){
   contentEl.innerHTML = `<div class="grid-makers">${makers.map(([name, n]) => `
     <div class="block-maker" data-maker="${escapeHtml(name)}">
       <div class="icon">${escapeHtml(name.slice(0,1))}</div>
-      <div class="name">${escapeHtml(name)}</div>
+      <div class="name" style="--ns:${nameScaleRatio(name)};">${escapeHtml(name)}</div>
       <div class="n">${n} 件のカタログ</div>
     </div>
   `).join('')}</div>`;
@@ -681,7 +697,7 @@ function renderCatalogsView(){
 function cardHtml(e){
   return `
     <div class="card" data-card="${e.id}">
-      <div class="name">${escapeHtml(e.name)}</div>
+      <div class="name" style="--ns:${nameScaleRatio(e.name)};">${escapeHtml(e.name)}</div>
       ${e.memo ? `<div class="memo">${escapeHtml(e.memo)}</div>` : '<div class="memo"></div>'}
       <div class="card-foot">
         <span class="open-hint">タップして開く</span>
