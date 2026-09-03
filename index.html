@@ -274,12 +274,20 @@
   .card:active{ transform:scale(0.98); }
   .card .name{
     font-family:'Zen Kaku Gothic New', sans-serif;
-    font-size:22px;
+    font-size:21px;
     font-weight:700;
     color:var(--ink);
-    line-height:1.4;
+    line-height:1.35;
     text-wrap:balance;
+    word-break:keep-all;
+    overflow-wrap:break-word;
     max-width:100%;
+    min-height:calc(1.35em * 2); /* 1行でも2行分の高さを確保し、カードの高さを揃える */
+    display:-webkit-box;
+    -webkit-line-clamp:2;
+    -webkit-box-orient:vertical;
+    overflow:hidden;
+    text-overflow:ellipsis;
   }
   .card .memo{
     font-size:13.5px;
@@ -514,7 +522,7 @@
       gap:12px;
     }
     .card{ padding:16px 16px 14px; min-height:auto; }
-    .card .name{ font-size:19px; }
+    .card .name{ font-size:18px; min-height:calc(1.35em * 2); }
 
     .modal{
       padding:22px 18px 18px;
@@ -613,6 +621,16 @@ function escapeHtml(str){
   return (str || '').replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
 
+// 見出し表示用: 最後の2文字を分割不可のまとまりにして、1文字だけが次の行に
+// はみ出して残ってしまう(孤立する)のを防ぐ
+function nameHtml(text){
+  const t = text || '';
+  if(t.length < 2) return escapeHtml(t);
+  const head = t.slice(0, -2);
+  const tail = t.slice(-2);
+  return escapeHtml(head) + '<span style="white-space:nowrap;">' + escapeHtml(tail) + '</span>';
+}
+
 function normalizeUrl(u){
   u = (u || '').trim();
   if(!u) return u;
@@ -640,7 +658,7 @@ function measureTextWidth(text, size){
 }
 
 function fitNameElements(){
-  document.querySelectorAll('.block-maker .name, .card .name').forEach(elm => {
+  document.querySelectorAll('.block-maker .name').forEach(elm => {
     const text = elm.textContent;
     const available = elm.clientWidth - NAME_SIDE_GAP * 2;
     if(available <= 0 || !text) return;
@@ -915,7 +933,7 @@ function renderMakersView(){
         </div>
       ` : ''}
       <div class="icon">${escapeHtml(name.slice(0,1))}</div>
-      <div class="name">${escapeHtml(name)}</div>
+      <div class="name">${nameHtml(name)}</div>
       <div class="n">${n} 件のカタログ</div>
     </div>
   `).join('')}</div>`;
@@ -986,12 +1004,12 @@ function cardHtml(e, idx, total){
           <button class="reorder-btn" data-move="prev" ${idx === 0 ? 'disabled' : ''} aria-label="前へ">◀ 前</button>
           <button class="reorder-btn" data-move="next" ${idx === total - 1 ? 'disabled' : ''} aria-label="次へ">次 ▶</button>
         </div>
-        <div class="name">${escapeHtml(e.name)}</div>
+        <div class="name">${nameHtml(e.name)}</div>
       </div>`;
   }
   return `
     <div class="card" data-card="${e.id}">
-      <div class="name">${escapeHtml(e.name)}</div>
+      <div class="name">${nameHtml(e.name)}</div>
       ${e.memo ? `<div class="memo">${escapeHtml(e.memo)}</div>` : '<div class="memo"></div>'}
       <div class="card-foot">
         <span class="open-hint">タップして開く</span>
