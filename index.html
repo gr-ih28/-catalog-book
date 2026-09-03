@@ -239,7 +239,7 @@
   }
   .block-maker .name{
     font-family:'Zen Kaku Gothic New', sans-serif;
-    font-size:19px;
+    font-size:22px;
     font-weight:700;
     color:var(--ink);
     line-height:1.4;
@@ -274,7 +274,7 @@
   .card:active{ transform:scale(0.98); }
   .card .name{
     font-family:'Zen Kaku Gothic New', sans-serif;
-    font-size:19px;
+    font-size:22px;
     font-weight:700;
     color:var(--ink);
     line-height:1.4;
@@ -506,7 +506,7 @@
       gap:8px;
     }
     .block-maker .icon{ width:44px; height:44px; font-size:17px; }
-    .block-maker .name{ font-size:16px; }
+    .block-maker .name{ font-size:18px; }
     .block-maker .n{ font-size:12px; }
 
     .grid-catalogs{
@@ -514,7 +514,7 @@
       gap:12px;
     }
     .card{ padding:16px 16px 14px; min-height:auto; }
-    .card .name{ font-size:17px; }
+    .card .name{ font-size:19px; }
 
     .modal{
       padding:22px 18px 18px;
@@ -568,13 +568,36 @@
 const API_URL = "https://script.google.com/macros/s/AKfycby3pYilv6XP0lwOXyx38kRi6bKJWBSWoP-2c2X4VpaAR_R9x9lGHnFTIXNI81xTAQ2I-Q/exec";
 
 let entries = [];
-let makerOrder = [];
 let loaded = false;
 let loadFailed = false;
 let reorderMode = false;
 let state = { view: 'makers', maker: null }; // view: 'makers' | 'catalogs'
 
-const CACHE_STORAGE_KEY = 'catalogAppCache_v1';
+const CACHE_STORAGE_KEY = 'catalogAppCache_v1';   // 共有データ(カタログ内容)のキャッシュ
+const ORDER_STORAGE_KEY = 'catalogAppOrder_v1';   // この端末だけの並び順
+
+function loadLocalOrder(){
+  try{
+    const raw = localStorage.getItem(ORDER_STORAGE_KEY);
+    const parsed = raw ? JSON.parse(raw) : null;
+    return {
+      makerOrder: (parsed && Array.isArray(parsed.makerOrder)) ? parsed.makerOrder : [],
+      entryOrder: (parsed && parsed.entryOrder && typeof parsed.entryOrder === 'object') ? parsed.entryOrder : {}
+    };
+  }catch(e){
+    return { makerOrder: [], entryOrder: {} };
+  }
+}
+
+function saveLocalOrder(){
+  try{
+    localStorage.setItem(ORDER_STORAGE_KEY, JSON.stringify(localOrder));
+  }catch(e){
+    // 保存に失敗しても致命的ではないので無視する
+  }
+}
+
+let localOrder = loadLocalOrder();
 
 const el = (sel) => document.querySelector(sel);
 const contentEl = el('#content');
@@ -598,10 +621,15 @@ function normalizeUrl(u){
 }
 
 // ブロック内の見出し文字を「入る限り大きく・できれば1行・両端に余白」で自動調整する
-const NAME_MAX_SIZE = 19;   // 基準の最大サイズ(px)
-const NAME_MIN_SIZE = 11;   // これ以上は縮めない下限(px)
+const NAME_MAX_SIZE = 22;   // 基準の最大サイズ(px)
+const NAME_MIN_SIZE = 13;   // これ以上は縮めない下限(px)
 const NAME_SIDE_GAP = 14;   // 文字と枠の両端に残す余白(px、片側あたり)
+const LATIN_HEIGHT_BOOST = 1.18; // 漢字と同じpxでもアルファベットは小さく見えるための補正倍率
 let _fitCanvasCtx = null;
+
+function containsCJK(text){
+  return /[\u3000-\u303F\u3040-\u30FF\u3400-\u9FFF\uF900-\uFAFF\uFF00-\uFFEF]/.test(text);
+}
 
 function measureTextWidth(text, size){
   if(!_fitCanvasCtx){
@@ -617,8 +645,13 @@ function fitNameElements(){
     const available = elm.clientWidth - NAME_SIDE_GAP * 2;
     if(available <= 0 || !text) return;
 
-    let chosen = NAME_MIN_SIZE;
-    for(let size = NAME_MAX_SIZE; size >= NAME_MIN_SIZE; size -= 0.5){
+    // 漢字・かなを含まない(英数字だけの)名前は、見た目の高さを漢字に揃えるため少し大きめに扱う
+    const boost = containsCJK(text) ? 1 : LATIN_HEIGHT_BOOST;
+    const maxSize = NAME_MAX_SIZE * boost;
+    const minSize = NAME_MIN_SIZE * boost;
+
+    let chosen = minSize;
+    for(let size = maxSize; size >= minSize; size -= 0.5){
       if(measureTextWidth(text, size) <= available){
         chosen = size;
         break;
@@ -675,7 +708,7 @@ function loadCacheFromLocalStorage(){
 
 function persistCache(){
   try{
-    localStorage.setItem(CACHE_STORAGE_KEY, JSON.stringify({ entries, makerOrder, savedAt: Date.now() }));
+    localStorage.setItem(CACHE_STORAGE_KEY, JSON.stringify({ entries, savedAt: Date.now() }));
   }catch(e){
     // 保存容量オーバーなどは無視して問題ない(次回また保存を試みる)
   }
@@ -693,7 +726,6 @@ async function loadEntries(){
   const cached = loadCacheFromLocalStorage();
   if(cached){
     entries = cached.entries;
-    makerOrder = cached.makerOrder || [];
     loaded = true;
     loadFailed = false;
     render();
@@ -702,7 +734,6 @@ async function loadEntries(){
   try{
     const data = await apiCall({ action: 'list' });
     entries = data.entries || [];
-    makerOrder = data.makerOrder || [];
     loadFailed = false;
     persistCache();
   }catch(e){
@@ -719,35 +750,18 @@ async function loadEntries(){
 async function addEntryRemote(maker, name, url, memo){
   const data = await apiCall({ action: 'add', maker, name, url, memo });
   entries = data.entries || [];
-  makerOrder = data.makerOrder || makerOrder;
   persistCache();
 }
 
 async function updateEntryRemote(id, maker, name, url, memo){
   const data = await apiCall({ action: 'update', id, maker, name, url, memo });
   entries = data.entries || [];
-  makerOrder = data.makerOrder || makerOrder;
   persistCache();
 }
 
 async function deleteEntryRemote(id){
   const data = await apiCall({ action: 'delete', id });
   entries = data.entries || [];
-  makerOrder = data.makerOrder || makerOrder;
-  persistCache();
-}
-
-async function reorderEntriesRemote(ids){
-  const data = await apiCall({ action: 'reorderEntries', ids: ids.join(',') });
-  entries = data.entries || entries;
-  makerOrder = data.makerOrder || makerOrder;
-  persistCache();
-}
-
-async function reorderMakersRemote(names){
-  const data = await apiCall({ action: 'reorderMakers', names: names.join(',') });
-  entries = data.entries || entries;
-  makerOrder = data.makerOrder || names;
   persistCache();
 }
 
@@ -755,33 +769,35 @@ function getOrderedMakers(){
   const counts = new Map();
   entries.forEach(e => counts.set(e.maker, (counts.get(e.maker)||0) + 1));
   const allNames = [...counts.keys()];
-  const known = (makerOrder || []).filter(n => counts.has(n));
+  const known = (localOrder.makerOrder || []).filter(n => counts.has(n));
   const unknown = allNames.filter(n => !known.includes(n)).sort((a,b) => a.localeCompare(b, 'ja'));
   const orderedNames = [...known, ...unknown];
-  makerOrder = orderedNames; // 新しく増えたメーカーなどを含めて常に最新化しておく
+
+  // 新しく増えたメーカーなどがあれば、この端末の並び順にも反映しておく
+  if(JSON.stringify(orderedNames) !== JSON.stringify(localOrder.makerOrder)){
+    localOrder.makerOrder = orderedNames;
+    saveLocalOrder();
+  }
   return orderedNames.map(n => [n, counts.get(n)]);
 }
 
 function getEntriesForMaker(maker){
-  // サーバーから返ってきた並び順(登録順 or 保存済みの並び替え順)をそのまま使う
-  return entries.filter(e => e.maker === maker);
-}
+  const list = entries.filter(e => e.maker === maker);
+  const order = localOrder.entryOrder[maker];
+  if(!order || !order.length) return list;
 
-let _saveMakerOrderTimer = null;
-function scheduleSaveMakerOrder(){
-  clearTimeout(_saveMakerOrderTimer);
-  _saveMakerOrderTimer = setTimeout(() => {
-    reorderMakersRemote(makerOrder).catch(() => {});
-  }, 500);
-}
+  const idToEntry = new Map(list.map(e => [e.id, e]));
+  const known = order.map(id => idToEntry.get(id)).filter(Boolean);
+  const knownIds = new Set(known.map(e => e.id));
+  const unknown = list.filter(e => !knownIds.has(e.id)); // 他の端末で新しく追加された分は末尾に入る
+  const merged = [...known, ...unknown];
 
-let _saveEntryOrderTimer = null;
-function scheduleSaveEntryOrder(maker){
-  clearTimeout(_saveEntryOrderTimer);
-  _saveEntryOrderTimer = setTimeout(() => {
-    const ids = getEntriesForMaker(maker).map(e => e.id);
-    reorderEntriesRemote(ids).catch(() => {});
-  }, 500);
+  const mergedIds = merged.map(e => e.id);
+  if(JSON.stringify(mergedIds) !== JSON.stringify(order)){
+    localOrder.entryOrder[maker] = mergedIds;
+    saveLocalOrder();
+  }
+  return merged;
 }
 
 function moveMaker(name, direction){
@@ -790,9 +806,9 @@ function moveMaker(name, direction){
   const newIdx = idx + direction;
   if(newIdx < 0 || newIdx >= names.length) return;
   [names[idx], names[newIdx]] = [names[newIdx], names[idx]];
-  makerOrder = names;
+  localOrder.makerOrder = names;
+  saveLocalOrder();
   renderMain();
-  scheduleSaveMakerOrder();
 }
 
 function moveEntry(id, direction){
@@ -800,11 +816,11 @@ function moveEntry(id, direction){
   const idx = list.findIndex(x => x.id === id);
   const newIdx = idx + direction;
   if(newIdx < 0 || newIdx >= list.length) return;
-  const globalIdxA = entries.indexOf(list[idx]);
-  const globalIdxB = entries.indexOf(list[newIdx]);
-  [entries[globalIdxA], entries[globalIdxB]] = [entries[globalIdxB], entries[globalIdxA]];
+  const ids = list.map(e => e.id);
+  [ids[idx], ids[newIdx]] = [ids[newIdx], ids[idx]];
+  localOrder.entryOrder[state.maker] = ids;
+  saveLocalOrder();
   renderMain();
-  scheduleSaveEntryOrder(state.maker);
 }
 
 function goToMakers(){
@@ -888,7 +904,7 @@ function renderMain(){
 function renderMakersView(){
   const makers = getOrderedMakers();
   mainTitleEl.textContent = '';
-  resultNEl.textContent = reorderMode ? '並び替え中' : `${makers.length} 社`;
+  resultNEl.textContent = reorderMode ? '並び替え中(この端末のみ保存)' : `${makers.length} 社`;
 
   contentEl.innerHTML = `<div class="grid-makers">${makers.map(([name, n], idx) => `
     <div class="block-maker ${reorderMode ? 'reorder-mode' : ''}" data-maker="${escapeHtml(name)}">
@@ -924,7 +940,7 @@ function renderMakersView(){
 function renderCatalogsView(){
   const list = getEntriesForMaker(state.maker);
   mainTitleEl.textContent = state.maker;
-  resultNEl.textContent = reorderMode ? '並び替え中' : `${list.length} 件`;
+  resultNEl.textContent = reorderMode ? '並び替え中(この端末のみ保存)' : `${list.length} 件`;
 
   if(list.length === 0){
     contentEl.innerHTML = `
@@ -1022,7 +1038,6 @@ function openFormModal(existing, presetMaker){
     </div>`;
 
   el('#cancelForm').addEventListener('click', () => closeModal());
-  el('#formOverlay').addEventListener('click', (ev) => { if(ev.target.id === 'formOverlay') closeModal(); });
 
   if(isEdit){
     el('#deleteBtn').addEventListener('click', () => confirmDelete(existing));
