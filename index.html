@@ -226,7 +226,7 @@
   .block-maker:active{ transform:scale(0.97); }
   .block-maker .name{
     font-family:'Zen Kaku Gothic New', sans-serif;
-    font-size:calc(22px * var(--lb, 1));
+    font-size:calc(17.5px * var(--lb, 1));
     font-weight:700;
     color:var(--ink);
     line-height:1.35;
@@ -508,7 +508,7 @@
       min-height:100px;
       gap:8px;
     }
-    .block-maker .name{ font-size:calc(18px * var(--lb, 1)); }
+    .block-maker .name{ font-size:calc(14.5px * var(--lb, 1)); }
     .block-maker .n{ font-size:12px; }
 
     .grid-catalogs{
@@ -784,21 +784,59 @@ function moveEntry(id, direction){
   renderMain();
 }
 
-function goToMakers(){
-  state.view = 'makers';
-  state.maker = null;
+function applyScreenState(s){
+  if(s && s.screen === 'catalogs' && s.maker){
+    state.view = 'catalogs';
+    state.maker = s.maker;
+  } else {
+    state.view = 'makers';
+    state.maker = null;
+  }
   reorderMode = false;
   updateReorderButton();
   render();
 }
 
+function goToMakers(){
+  // 履歴を1つ戻すことで、popstateハンドラが画面をメーカー一覧に切り替える
+  if(state.view !== 'makers'){
+    history.back();
+  }
+}
+
 function goToMaker(maker){
+  history.pushState({ screen: 'catalogs', maker }, '');
   state.view = 'catalogs';
   state.maker = maker;
   reorderMode = false;
   updateReorderButton();
   render();
 }
+
+// モーダルが開いている間に履歴を1つ消費しておくことで、
+// 端末の「戻る」操作で画面ごと戻らず、まずモーダルだけを閉じられるようにする
+let modalHistoryPushed = false;
+// モーダルを閉じたあとに、メーカー一覧まで戻す必要がある場合に立てるフラグ
+// (最後の1件を削除してそのメーカーが無くなった場合など)
+let pendingForceMakers = false;
+
+window.addEventListener('popstate', (ev) => {
+  if(modalHistoryPushed){
+    modalHistoryPushed = false;
+    modalRoot.innerHTML = '';
+    if(pendingForceMakers){
+      pendingForceMakers = false;
+      state.view = 'makers';
+      state.maker = null;
+      history.replaceState(null, '');
+      reorderMode = false;
+      updateReorderButton();
+      render();
+    }
+    return;
+  }
+  applyScreenState(ev.state);
+});
 
 backBtnEl.addEventListener('click', goToMakers);
 
@@ -962,6 +1000,11 @@ function openFormModal(existing, presetMaker){
   const isEdit = !!existing;
   const makerValue = isEdit ? existing.maker : (presetMaker || '');
 
+  if(!modalHistoryPushed){
+    history.pushState({ modal: true }, '');
+    modalHistoryPushed = true;
+  }
+
   modalRoot.innerHTML = `
     <div class="overlay" id="formOverlay">
       <div class="modal">
@@ -1021,11 +1064,17 @@ function openFormModal(existing, presetMaker){
     try{
       if(isEdit){
         await updateEntryRemote(existing.id, maker, name, url, memo);
+        state.maker = maker;
+        state.view = 'catalogs';
       } else {
         await addEntryRemote(maker, name, url, memo);
+        if(state.view === 'makers'){
+          // メーカー一覧の画面から新規登録した場合は、通常のメーカー遷移と同じく履歴を積む
+          history.pushState({ screen: 'catalogs', maker }, '');
+        }
+        state.maker = maker;
+        state.view = 'catalogs';
       }
-      state.maker = maker;
-      state.view = 'catalogs';
       loadFailed = false;
       render();
       closeModal();
@@ -1062,7 +1111,9 @@ function confirmDelete(e){
     try{
       await deleteEntryRemote(e.id);
       const stillHasMaker = entries.some(x => x.maker === e.maker);
-      if(!stillHasMaker) state.view = 'makers', state.maker = null;
+      if(!stillHasMaker && state.view === 'catalogs'){
+        pendingForceMakers = true;
+      }
       render();
       closeModal();
     }catch(err){
@@ -1074,7 +1125,13 @@ function confirmDelete(e){
   });
 }
 
-function closeModal(){ modalRoot.innerHTML = ''; }
+function closeModal(){
+  modalRoot.innerHTML = '';
+  if(modalHistoryPushed){
+    modalHistoryPushed = false;
+    history.back();
+  }
+}
 
 /* ---------- Global listeners ---------- */
 el('#btnAddHeader').addEventListener('click', () => openFormModal(null, state.view === 'catalogs' ? state.maker : ''));
