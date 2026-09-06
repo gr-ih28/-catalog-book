@@ -211,7 +211,7 @@
     background:var(--surface);
     border:1px solid var(--line);
     border-radius:var(--radius);
-    padding:30px 22px;
+    padding:26px 22px;
     cursor:pointer;
     text-align:center;
     display:flex;
@@ -219,24 +219,11 @@
     align-items:center;
     gap:10px;
     transition:border-color 0.15s ease, transform 0.1s ease, box-shadow 0.15s ease;
-    min-height:150px;
+    min-height:120px;
     justify-content:center;
   }
   .block-maker:hover{ border-color:var(--pine); box-shadow:0 3px 14px rgba(35,56,51,0.12); }
   .block-maker:active{ transform:scale(0.97); }
-  .block-maker .icon{
-    width:52px;
-    height:52px;
-    border-radius:50%;
-    background:var(--pine-tint);
-    color:var(--pine-dark);
-    display:flex;
-    align-items:center;
-    justify-content:center;
-    font-family:'Zen Kaku Gothic New', sans-serif;
-    font-weight:900;
-    font-size:20px;
-  }
   .block-maker .name{
     font-family:'Zen Kaku Gothic New', sans-serif;
     font-size:22px;
@@ -510,10 +497,9 @@
     }
     .block-maker{
       padding:20px 14px;
-      min-height:120px;
+      min-height:100px;
       gap:8px;
     }
-    .block-maker .icon{ width:44px; height:44px; font-size:17px; }
     .block-maker .name{ font-size:18px; }
     .block-maker .n{ font-size:12px; }
 
@@ -932,7 +918,6 @@ function renderMakersView(){
           <button class="reorder-btn" data-move="next" ${idx === makers.length - 1 ? 'disabled' : ''} aria-label="次へ">次 ▶</button>
         </div>
       ` : ''}
-      <div class="icon">${escapeHtml(name.slice(0,1))}</div>
       <div class="name">${nameHtml(name)}</div>
       <div class="n">${n} 件のカタログ</div>
     </div>
