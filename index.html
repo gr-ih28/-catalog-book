@@ -226,12 +226,20 @@
   .block-maker:active{ transform:scale(0.97); }
   .block-maker .name{
     font-family:'Zen Kaku Gothic New', sans-serif;
-    font-size:22px;
+    font-size:calc(22px * var(--lb, 1));
     font-weight:700;
     color:var(--ink);
-    line-height:1.4;
+    line-height:1.35;
     text-wrap:balance;
+    word-break:keep-all;
+    overflow-wrap:break-word;
     max-width:100%;
+    min-height:calc(1.35em * 2);
+    display:-webkit-box;
+    -webkit-line-clamp:2;
+    -webkit-box-orient:vertical;
+    overflow:hidden;
+    text-overflow:ellipsis;
   }
   .block-maker .n{
     font-size:13px;
@@ -261,7 +269,7 @@
   .card:active{ transform:scale(0.98); }
   .card .name{
     font-family:'Zen Kaku Gothic New', sans-serif;
-    font-size:21px;
+    font-size:calc(21px * var(--lb, 1));
     font-weight:700;
     color:var(--ink);
     line-height:1.35;
@@ -500,7 +508,7 @@
       min-height:100px;
       gap:8px;
     }
-    .block-maker .name{ font-size:18px; }
+    .block-maker .name{ font-size:calc(18px * var(--lb, 1)); }
     .block-maker .n{ font-size:12px; }
 
     .grid-catalogs{
@@ -508,7 +516,7 @@
       gap:12px;
     }
     .card{ padding:16px 16px 14px; min-height:auto; }
-    .card .name{ font-size:18px; min-height:calc(1.35em * 2); }
+    .card .name{ font-size:calc(18px * var(--lb, 1)); min-height:calc(1.35em * 2); }
 
     .modal{
       padding:22px 18px 18px;
@@ -624,68 +632,17 @@ function normalizeUrl(u){
   return u;
 }
 
-// ブロック内の見出し文字を「入る限り大きく・できれば1行・両端に余白」で自動調整する
-const NAME_MAX_SIZE = 22;   // 基準の最大サイズ(px)
-const NAME_MIN_SIZE = 13;   // これ以上は縮めない下限(px)
-const NAME_SIDE_GAP = 14;   // 文字と枠の両端に残す余白(px、片側あたり)
-const LATIN_HEIGHT_BOOST = 1.18; // 漢字と同じpxでもアルファベットは小さく見えるための補正倍率
-let _fitCanvasCtx = null;
+// 漢字・かなを含まない(英数字だけの)名前は、同じpxでも小さく見えるため
+// CSS変数(--lb)で少しだけ拡大して高さの見た目を漢字に揃える
+const LATIN_HEIGHT_BOOST = 1.18;
 
 function containsCJK(text){
   return /[\u3000-\u303F\u3040-\u30FF\u3400-\u9FFF\uF900-\uFAFF\uFF00-\uFFEF]/.test(text);
 }
 
-function measureTextWidth(text, size){
-  if(!_fitCanvasCtx){
-    _fitCanvasCtx = document.createElement('canvas').getContext('2d');
-  }
-  _fitCanvasCtx.font = `700 ${size}px 'Zen Kaku Gothic New', sans-serif`;
-  return _fitCanvasCtx.measureText(text).width;
+function nameStyleAttr(text){
+  return containsCJK(text || '') ? '' : ` style="--lb:${LATIN_HEIGHT_BOOST};"`;
 }
-
-function fitNameElements(){
-  document.querySelectorAll('.block-maker .name').forEach(elm => {
-    const text = elm.textContent;
-    const available = elm.clientWidth - NAME_SIDE_GAP * 2;
-    if(available <= 0 || !text) return;
-
-    // 漢字・かなを含まない(英数字だけの)名前は、見た目の高さを漢字に揃えるため少し大きめに扱う
-    const boost = containsCJK(text) ? 1 : LATIN_HEIGHT_BOOST;
-    const maxSize = NAME_MAX_SIZE * boost;
-    const minSize = NAME_MIN_SIZE * boost;
-
-    let chosen = minSize;
-    for(let size = maxSize; size >= minSize; size -= 0.5){
-      if(measureTextWidth(text, size) <= available){
-        chosen = size;
-        break;
-      }
-    }
-
-    const fitsOnOneLine = measureTextWidth(text, chosen) <= available;
-    elm.style.fontSize = chosen + 'px';
-    elm.style.paddingLeft = NAME_SIDE_GAP + 'px';
-    elm.style.paddingRight = NAME_SIDE_GAP + 'px';
-    elm.style.boxSizing = 'border-box';
-    if(fitsOnOneLine){
-      elm.style.whiteSpace = 'nowrap';
-      elm.style.overflow = 'hidden';
-      elm.style.textOverflow = 'ellipsis';
-    } else {
-      // 極端に長い名前だけ、最小サイズのまま折り返しを許可する
-      elm.style.whiteSpace = 'normal';
-      elm.style.overflow = 'visible';
-      elm.style.textOverflow = 'clip';
-    }
-  });
-}
-
-let _fitResizeTimer = null;
-function scheduleFitNames(){
-  clearTimeout(_fitResizeTimer);
-  _fitResizeTimer = setTimeout(fitNameElements, 120);
-}
-window.addEventListener('resize', scheduleFitNames);
 
 function isApiConfigured(){
   return API_URL && API_URL.startsWith('http');
@@ -918,12 +875,10 @@ function renderMakersView(){
           <button class="reorder-btn" data-move="next" ${idx === makers.length - 1 ? 'disabled' : ''} aria-label="次へ">次 ▶</button>
         </div>
       ` : ''}
-      <div class="name">${nameHtml(name)}</div>
+      <div class="name"${nameStyleAttr(name)}>${nameHtml(name)}</div>
       <div class="n">${n} 件のカタログ</div>
     </div>
   `).join('')}</div>`;
-
-  fitNameElements();
 
   if(reorderMode){
     contentEl.querySelectorAll('.block-maker').forEach(node => {
@@ -956,7 +911,6 @@ function renderCatalogsView(){
   }
 
   contentEl.innerHTML = `<div class="grid-catalogs">${list.map((e, idx) => cardHtml(e, idx, list.length)).join('')}</div>`;
-  fitNameElements();
 
   if(reorderMode){
     list.forEach(e => {
@@ -989,12 +943,12 @@ function cardHtml(e, idx, total){
           <button class="reorder-btn" data-move="prev" ${idx === 0 ? 'disabled' : ''} aria-label="前へ">◀ 前</button>
           <button class="reorder-btn" data-move="next" ${idx === total - 1 ? 'disabled' : ''} aria-label="次へ">次 ▶</button>
         </div>
-        <div class="name">${nameHtml(e.name)}</div>
+        <div class="name"${nameStyleAttr(e.name)}>${nameHtml(e.name)}</div>
       </div>`;
   }
   return `
     <div class="card" data-card="${e.id}">
-      <div class="name">${nameHtml(e.name)}</div>
+      <div class="name"${nameStyleAttr(e.name)}>${nameHtml(e.name)}</div>
       ${e.memo ? `<div class="memo">${escapeHtml(e.memo)}</div>` : '<div class="memo"></div>'}
       <div class="card-foot">
         <span class="open-hint">タップして開く</span>
