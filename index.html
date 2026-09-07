@@ -266,6 +266,45 @@
     min-height:140px;
   }
   .card:hover{ border-color:var(--pine); box-shadow:0 2px 10px rgba(35,56,51,0.1); }
+  .card-broken{ border-color:#D8B4A6; background:#FBF4F1; }
+  .broken-badge{
+    align-self:flex-start;
+    font-size:12px;
+    font-weight:700;
+    color:var(--danger);
+    background:#F5DFD8;
+    padding:4px 9px;
+    border-radius:5px;
+  }
+
+  .link-check-bar{
+    display:flex;
+    align-items:center;
+    gap:14px;
+    margin-bottom:16px;
+    flex-wrap:wrap;
+  }
+  .link-check-btn{
+    background:var(--surface);
+    border:1px solid var(--line-strong);
+    color:var(--ink);
+    font-family:'Noto Sans JP', sans-serif;
+    font-weight:700;
+    font-size:14px;
+    padding:11px 18px;
+    border-radius:8px;
+    cursor:pointer;
+    min-height:44px;
+  }
+  .link-check-btn:hover{ background:var(--surface-alt); }
+  .link-check-btn:disabled{ opacity:0.6; cursor:not-allowed; }
+  .link-check-status{
+    font-size:13.5px;
+    color:var(--pine-dark);
+    font-weight:700;
+  }
+  .link-check-status.is-broken{ color:var(--danger); }
+
   .card:active{ transform:scale(0.98); }
   .card .name{
     font-family:'Zen Kaku Gothic New', sans-serif;
@@ -499,6 +538,9 @@
     .main-top h2{ font-size:19px; }
     .main-top .result-n{ font-size:13px; }
 
+    .link-check-bar{ flex-direction:column; align-items:stretch; gap:8px; }
+    .link-check-btn{ width:100%; justify-content:center; }
+
     .grid-makers{
       grid-template-columns:repeat(auto-fill, minmax(140px,1fr));
       gap:12px;
@@ -573,6 +615,7 @@ let entries = [];
 let loaded = false;
 let loadFailed = false;
 let reorderMode = false;
+let linkCheckResults = {}; // { entryId: 'ok' | 'broken' }
 let state = { view: 'makers', maker: null }; // view: 'makers' | 'catalogs'
 
 const CACHE_STORAGE_KEY = 'catalogAppCache_v1';   // 共有データ(カタログ内容)のキャッシュ
@@ -726,6 +769,16 @@ async function deleteEntryRemote(id){
   persistCache();
 }
 
+async function checkLinksRemote(ids){
+  const data = await apiCall({ action: 'checkLinks', ids: ids.join(',') });
+  return data;
+}
+
+function getUniqueMakerNames(){
+  const set = new Set(entries.map(e => e.maker).filter(Boolean));
+  return [...set].sort((a,b) => a.localeCompare(b, 'ja'));
+}
+
 function getOrderedMakers(){
   const counts = new Map();
   entries.forEach(e => counts.set(e.maker, (counts.get(e.maker)||0) + 1));
@@ -793,6 +846,7 @@ function applyScreenState(s){
     state.maker = null;
   }
   reorderMode = false;
+  linkCheckResults = {};
   updateReorderButton();
   render();
 }
@@ -809,6 +863,7 @@ function goToMaker(maker){
   state.view = 'catalogs';
   state.maker = maker;
   reorderMode = false;
+  linkCheckResults = {};
   updateReorderButton();
   render();
 }
@@ -948,7 +1003,42 @@ function renderCatalogsView(){
     return;
   }
 
-  contentEl.innerHTML = `<div class="grid-catalogs">${list.map((e, idx) => cardHtml(e, idx, list.length)).join('')}</div>`;
+  const checkedCount = list.filter(e => linkCheckResults[e.id]).length;
+  const brokenCount = list.filter(e => linkCheckResults[e.id] === 'broken').length;
+  let statusText = '';
+  if(checkedCount > 0){
+    statusText = brokenCount > 0
+      ? `⚠ ${brokenCount}件、開けない可能性があります`
+      : `✓ ${checkedCount}件とも正常に開けました`;
+  }
+
+  const linkCheckBar = reorderMode ? '' : `
+    <div class="link-check-bar">
+      <button class="link-check-btn" id="linkCheckBtn">🔗 リンクを確認</button>
+      <span class="link-check-status ${brokenCount > 0 ? 'is-broken' : ''}" id="linkCheckStatus">${statusText}</span>
+    </div>`;
+
+  contentEl.innerHTML = `${linkCheckBar}<div class="grid-catalogs">${list.map((e, idx) => cardHtml(e, idx, list.length)).join('')}</div>`;
+
+  if(!reorderMode){
+    el('#linkCheckBtn').addEventListener('click', async () => {
+      const btn = el('#linkCheckBtn');
+      const statusEl = el('#linkCheckStatus');
+      btn.disabled = true;
+      btn.textContent = '確認中…';
+      if(statusEl){ statusEl.textContent = ''; statusEl.classList.remove('is-broken'); }
+      try{
+        const ids = list.map(x => x.id);
+        const data = await checkLinksRemote(ids);
+        (data.results || []).forEach(r => { linkCheckResults[r.id] = r.status; });
+        renderCatalogsView();
+      }catch(err){
+        btn.disabled = false;
+        btn.textContent = '🔗 リンクを確認';
+        if(statusEl){ statusEl.textContent = '確認に失敗しました。もう一度お試しください。'; statusEl.classList.add('is-broken'); }
+      }
+    });
+  }
 
   if(reorderMode){
     list.forEach(e => {
@@ -984,9 +1074,11 @@ function cardHtml(e, idx, total){
         <div class="name"${nameStyleAttr(e.name)}>${nameHtml(e.name)}</div>
       </div>`;
   }
+  const broken = linkCheckResults[e.id] === 'broken';
   return `
-    <div class="card" data-card="${e.id}">
+    <div class="card${broken ? ' card-broken' : ''}" data-card="${e.id}">
       <div class="name"${nameStyleAttr(e.name)}>${nameHtml(e.name)}</div>
+      ${broken ? '<div class="broken-badge">⚠ 開けない可能性があります</div>' : ''}
       ${e.memo ? `<div class="memo">${escapeHtml(e.memo)}</div>` : '<div class="memo"></div>'}
       <div class="card-foot">
         <span class="open-hint">タップして開く</span>
@@ -1012,7 +1104,10 @@ function openFormModal(existing, presetMaker){
         <form id="catalogForm">
           <div class="field">
             <label for="f_maker">メーカー名</label>
-            <input type="text" id="f_maker" placeholder="例: LIXIL" value="${escapeHtml(makerValue)}" required>
+            <input type="text" id="f_maker" list="makerSuggestions" placeholder="例: LIXIL" value="${escapeHtml(makerValue)}" autocomplete="off" required>
+            <datalist id="makerSuggestions">
+              ${getUniqueMakerNames().map(m => `<option value="${escapeHtml(m)}"></option>`).join('')}
+            </datalist>
           </div>
           <div class="field">
             <label for="f_name">商品名・カタログ名</label>
